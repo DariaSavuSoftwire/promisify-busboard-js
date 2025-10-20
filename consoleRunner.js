@@ -1,5 +1,5 @@
-import { createInterface } from 'readline';
-import { URL } from 'url';
+import {createInterface} from 'readline';
+import {URL} from 'url';
 import request from 'request';
 
 const readline = createInterface({
@@ -12,11 +12,14 @@ const TFL_BASE_URL = 'https://api.tfl.gov.uk';
 
 export default class ConsoleRunner {
 
-    promptForPostcode(callback) {
-        readline.question('\nEnter your postcode: ', function(postcode) {
-            readline.close();
-            callback(postcode);
-        });
+    promptForPostcode() {
+        return new Promise((resolve, reject) => {
+            readline.question('\nEnter your postcode: ', function (postcode) {
+                readline.close();
+                if (!postcode) reject(new Error(`No post code entered`));
+                else resolve(postcode);
+            });
+        })
     }
 
     displayStopPoints(stopPoints) {
@@ -31,57 +34,65 @@ export default class ConsoleRunner {
         return requestUrl.href;
     }
 
-    makeGetRequest(baseUrl, endpoint, parameters, callback) {
+    makeGetRequest(baseUrl, endpoint, parameters) {
         const url = this.buildUrl(baseUrl, endpoint, parameters);
-
-        request.get(url, (err, response, body) => {
-            if (err) {
-                console.log(err);
-            } else if (response.statusCode !== 200) {
-                console.log(response.statusCode);
-            } else {
-                callback(body);
-            }
-        });
-    }
-
-    getLocationForPostCode(postcode, callback) {
-        this.makeGetRequest(POSTCODES_BASE_URL, `postcodes/${postcode}`, [], function(responseBody) {
-            const jsonBody = JSON.parse(responseBody);
-            callback({ latitude: jsonBody.result.latitude, longitude: jsonBody.result.longitude });
-        });
-    }
-
-    getNearestStopPoints(latitude, longitude, count, callback) {
-        this.makeGetRequest(
-            TFL_BASE_URL,
-            `StopPoint`, 
-            [
-                {name: 'stopTypes', value: 'NaptanPublicBusCoachTram'},
-                {name: 'lat', value: latitude},
-                {name: 'lon', value: longitude},
-                {name: 'radius', value: 1000},
-                {name: 'app_id', value: '' /* Enter your app id here */},
-                {name: 'app_key', value: '' /* Enter your app key here */}
-            ],
-            function(responseBody) {
-                const stopPoints = JSON.parse(responseBody).stopPoints.map(function(entity) { 
-                    return { naptanId: entity.naptanId, commonName: entity.commonName };
-                }).slice(0, count);
-                callback(stopPoints);
-            }
-        );
-    }
-
-    run() {
-        const that = this;
-        that.promptForPostcode(function(postcode) {
-            postcode = postcode.replace(/\s/g, '');
-            that.getLocationForPostCode(postcode, function(location) {
-                that.getNearestStopPoints(location.latitude, location.longitude, 5, function(stopPoints) {
-                    that.displayStopPoints(stopPoints);
-                });
+        return new Promise((resolve, reject) => {
+            request.get(url, (err, response, body) => {
+                if (err) {
+                    reject(new Error(`Error making request:${err.message}`));
+                } else if (response.statusCode !== 200) {
+                    reject(new Error(`HTTP error: ${response.statusCode}`));
+                } else {
+                    resolve(body);
+                }
             });
-        });
+        })
+    }
+
+    async getLocationForPostCode(postcode) {
+        try
+        {
+            const response= await this.makeGetRequest(POSTCODES_BASE_URL, `postcodes/${postcode}`, []);
+            const jsonBody = JSON.parse(response);
+            return {latitude: jsonBody.result.latitude, longitude: jsonBody.result.longitude};
+        }
+        catch(err) {
+            throw new Error(`Error getting location for postcode: ${err.message}`);
+        }
+    }
+
+    async getNearestStopPoints(latitude, longitude, count) {
+        try {
+            const response = await this.makeGetRequest(
+                TFL_BASE_URL,
+                `StopPoint`,
+                [
+                    {name: 'stopTypes', value: 'NaptanPublicBusCoachTram'},
+                    {name: 'lat', value: latitude},
+                    {name: 'lon', value: longitude},
+                    {name: 'radius', value: 1000},
+                    {name: 'app_id', value: '' /* Enter your app id here */},
+                    {name: 'app_key', value: '' /* Enter your app key here */}
+                ])
+            return JSON.parse(response).stopPoints.map(function (entity) {
+                return {naptanId: entity.naptanId, commonName: entity.commonName};
+            }).slice(0, count);
+        }
+        catch(err) {
+            throw new Error(`Error getting stop points: ${err.message}`);
+        }
+    }
+
+    async run() {
+        const that = this;
+        try {
+            const postcode = (await that.promptForPostcode()).replace(/\s/g, '');
+            const location = await that.getLocationForPostCode(postcode);
+            const stopPoints = await that.getNearestStopPoints(location.latitude, location.longitude, 5);
+            that.displayStopPoints(stopPoints);
+
+        } catch (error) {
+            console.error(error.message);
+        }
     }
 }
