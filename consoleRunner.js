@@ -74,7 +74,7 @@ export default class ConsoleRunner {
                     {name: 'app_id', value: '' /* Enter your app id here */},
                     {name: 'app_key', value: '' /* Enter your app key here */}
                 ])
-           JSON.parse(response).stopPoints.map(function (entity) {
+            return JSON.parse(response).stopPoints.map(function (entity) {
                 return {naptanId: entity.naptanId, commonName: entity.commonName};
             }).slice(0, count);
         }
